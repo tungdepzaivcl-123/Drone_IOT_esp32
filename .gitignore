@@ -1,0 +1,34 @@
+# ── Python / data files ──────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# ── Build outputs ─────────────────────────────────────────────
+*.o
+*.elf
+*.hex
+*.bin
+*.map
+
+# ── IDE / editor ──────────────────────────────────────────────
+.vscode/settings.json
+.vscode/launch.json
+*.suo
+*.user
+.idea/
+
+# ── OS ────────────────────────────────────────────────────────
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# ── Python venv ───────────────────────────────────────────────
+venv/
+env/
+.env
+
+# ── Simulation outputs ────────────────────────────────────────
+*.png
+*.m~

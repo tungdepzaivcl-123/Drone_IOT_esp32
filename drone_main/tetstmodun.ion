@@ -1,0 +1,129 @@
+#include <Wire.h>
+
+// -------- PIN CONFIG --------
+#define RXD2 17
+#define TXD2 16
+
+#define SDA_PIN 21
+#define SCL_PIN 22
+
+
+void setup() {
+
+  Serial.begin(115200);
+
+  // I2C
+  Wire.begin(SDA_PIN, SCL_PIN);
+
+  // GPS UART
+  pinMode(RXD2, INPUT_PULLUP);
+  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
+
+  Serial.println();
+  Serial.println("========================================");
+  Serial.println("      HE THONG KIEM TRA DRONE");
+  Serial.println("========================================");
+}
+
+
+void loop() {
+
+  byte error, address;
+  int nDevices = 0;
+
+  int gps_bytes = 0;
+  unsigned long start_time = millis();
+
+  // ---------- CHECK GPS ----------
+  while (millis() - start_time < 1000) {
+
+    while (Serial2.available()) {
+      Serial2.read();
+      gps_bytes++;
+    }
+
+  }
+
+  // ---------- SCAN I2C ----------
+  Serial.println();
+  Serial.println("--- QUET THIET BI I2C ---");
+
+  for (address = 1; address < 127; address++) {
+
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+
+    if (error == 0) {
+
+      Serial.print("Tim thay 0x");
+
+      if (address < 16) Serial.print("0");
+      Serial.print(address, HEX);
+
+      // Identify sensor
+      if (address == 0x68)
+        Serial.println(" -> MPU6050 (IMU)");
+
+      else if (address == 0x1E)
+        Serial.println(" -> HMC5883L (La ban)");
+
+      else if (address == 0x0D)
+        Serial.println(" -> QMC5883L (La ban fake)");
+
+      else if (address == 0x76)
+        Serial.println(" -> BMP280 (Ap suat)");
+
+      else if (address == 0x77)
+        Serial.println(" -> BMP280 / BMP180 (Ap suat)");
+
+      else
+        Serial.println(" -> Thiet bi khac");
+
+      nDevices++;
+
+    } 
+    else if (error == 4) {
+
+      Serial.print("Loi I2C tai 0x");
+      Serial.println(address, HEX);
+
+    }
+
+  }
+
+  if (nDevices == 0)
+    Serial.println("Khong tim thay thiet bi I2C");
+
+
+
+  // ---------- GPS STATUS ----------
+  Serial.println();
+  Serial.println("--- KIEM TRA GPS ---");
+
+  if (gps_bytes > 20) {
+
+    Serial.print("GPS ONLINE | Data: ");
+    Serial.print(gps_bytes);
+    Serial.println(" bytes/s");
+
+  }
+
+  else if (gps_bytes > 0) {
+
+    Serial.print("GPS CO TIN HIEU NHUNG YEU | Data: ");
+    Serial.print(gps_bytes);
+    Serial.println(" bytes/s");
+
+  }
+
+  else {
+
+    Serial.println("GPS OFFLINE | Kiem tra day RX17 TX16");
+
+  }
+
+  Serial.println();
+  Serial.println("------------------------------------");
+
+  delay(2000);
+}

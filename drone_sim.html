@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drone PID Simulator — V3.5</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0e1a;
+  --surface: #111827;
+  --surface2: #1a2235;
+  --border: #1f2d45;
+  --accent: #3b82f6;
+  --accent2: #8b5cf6;
+  --green: #10b981;
+  --red: #ef4444;
+  --yellow: #f59e0b;
+  --cyan: #06b6d4;
+  --text: #e2e8f0;
+  --muted: #64748b;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; min-height:100vh; overflow-x:hidden; }
+h1 { font-size:1.4rem; font-weight:700; background:linear-gradient(135deg,#60a5fa,#a78bfa); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+.header { padding:16px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:16px; background:var(--surface); }
+.badge { font-size:.65rem; padding:3px 8px; border-radius:20px; font-weight:600; font-family:'JetBrains Mono',monospace; }
+.badge-green { background:rgba(16,185,129,.15); color:var(--green); border:1px solid rgba(16,185,129,.3); }
+.badge-blue { background:rgba(59,130,246,.15); color:#60a5fa; border:1px solid rgba(59,130,246,.3); }
+.layout { display:grid; grid-template-columns:320px 1fr 300px; gap:0; height:calc(100vh - 57px); }
+
+/* LEFT PANEL */
+.left-panel { background:var(--surface); border-right:1px solid var(--border); padding:16px; overflow-y:auto; display:flex; flex-direction:column; gap:14px; }
+.section-title { font-size:.7rem; font-weight:600; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin-bottom:8px; }
+.card { background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:14px; }
+.slider-row { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+.slider-row label { font-size:.75rem; color:var(--muted); width:70px; flex-shrink:0; }
+.slider-row input[type=range] { flex:1; -webkit-appearance:none; height:4px; border-radius:2px; background:var(--border); outline:none; cursor:pointer; }
+.slider-row input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--accent); cursor:pointer; }
+.slider-val { font-size:.75rem; font-family:'JetBrains Mono',monospace; color:var(--accent); width:48px; text-align:right; }
+.pid-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+.pid-input-wrap { display:flex; flex-direction:column; gap:3px; }
+.pid-input-wrap label { font-size:.65rem; color:var(--muted); }
+.pid-input-wrap input { background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:'JetBrains Mono',monospace; font-size:.8rem; padding:5px 8px; width:100%; text-align:center; }
+.pid-input-wrap input:focus { outline:none; border-color:var(--accent); }
+.pid-axis-label { font-size:.7rem; font-weight:600; color:var(--cyan); margin:6px 0 4px; }
+
+.btn { width:100%; padding:10px; border:none; border-radius:8px; font-family:'Inter',sans-serif; font-size:.85rem; font-weight:600; cursor:pointer; transition:all .2s; }
+.btn-primary { background:linear-gradient(135deg,#3b82f6,#6366f1); color:#fff; }
+.btn-primary:hover { opacity:.9; transform:translateY(-1px); }
+.btn-danger { background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff; }
+.btn-danger:hover { opacity:.9; }
+.btn-yellow { background:linear-gradient(135deg,#f59e0b,#d97706); color:#fff; }
+.step-btns { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+
+/* CENTER */
+.center-panel { display:flex; flex-direction:column; background:var(--bg); }
+.canvas-wrap { flex:1; position:relative; }
+canvas#simCanvas { width:100%; height:100%; display:block; }
+.overlay-hud { position:absolute; top:12px; left:12px; display:flex; flex-direction:column; gap:6px; pointer-events:none; }
+.hud-chip { background:rgba(10,14,26,.85); border:1px solid var(--border); border-radius:8px; padding:6px 12px; font-size:.75rem; font-family:'JetBrains Mono',monospace; display:flex; gap:10px; backdrop-filter:blur(8px); }
+.hud-chip span { color:var(--muted); }
+.hud-chip b { font-weight:600; }
+.b-g { color:var(--green); }
+.b-r { color:var(--red); }
+.b-y { color:var(--yellow); }
+.b-c { color:var(--cyan); }
+.b-b { color:#60a5fa; }
+
+/* RIGHT PANEL CHARTS */
+.right-panel { background:var(--surface); border-left:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+.chart-section { flex:1; padding:10px 12px; border-bottom:1px solid var(--border); overflow:hidden; min-height:0; }
+.chart-section:last-child { border-bottom:none; }
+.chart-label { font-size:.65rem; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:4px; display:flex; justify-content:space-between; }
+canvas.chart { width:100%; height:calc(100% - 20px); display:block; border-radius:6px; }
+
+/* STATUS ROW */
+.status-bar { background:var(--surface); border-top:1px solid var(--border); padding:8px 16px; display:flex; gap:20px; align-items:center; font-size:.72rem; }
+.status-item { display:flex; gap:6px; align-items:center; }
+.dot { width:8px; height:8px; border-radius:50%; }
+.dot-armed { background:var(--green); box-shadow:0 0 6px var(--green); animation:pulse 1s infinite; }
+.dot-disarmed { background:var(--red); }
+.dot-warn { background:var(--yellow); animation:pulse .6s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* Motor indicators */
+.motors-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.motor-item { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:8px; text-align:center; }
+.motor-name { font-size:.65rem; color:var(--muted); margin-bottom:4px; }
+.motor-val { font-size:1.1rem; font-weight:700; font-family:'JetBrains Mono',monospace; }
+.m-fl { color:#60a5fa; } .m-fr { color:#a78bfa; } .m-rl { color:#34d399; } .m-rr { color:#fb923c; }
+.motor-bar { height:4px; background:var(--border); border-radius:2px; margin-top:4px; overflow:hidden; }
+.motor-bar-fill { height:100%; border-radius:2px; transition:width .08s; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🚁 Drone PID Simulator</h1>
+  <span class="badge badge-blue">V3.5 FINAL</span>
+  <span class="badge badge-green">Quad-X · 1.3kg</span>
+  <span class="badge badge-blue">250Hz Loop</span>
+  <div style="margin-left:auto;font-size:.75rem;color:var(--muted)">Mô phỏng vật lý thực tế • Angle Mode</div>
+</div>
+
+<div class="layout">
+<!-- LEFT PANEL -->
+<div class="left-panel">
+  <div>
+    <div class="section-title">🎮 Điều khiển tay cầm</div>
+    <div class="card">
+      <div class="slider-row">
+        <label>Throttle</label>
+        <input type="range" id="sl_thr" min="1000" max="2000" value="1000" oninput="updateSlider('thr',this.value)">
+        <span class="slider-val" id="lbl_thr">1000</span>
+      </div>
+      <div class="slider-row">
+        <label>Roll (RX)</label>
+        <input type="range" id="sl_rx" min="1000" max="2000" value="1500" oninput="updateSlider('rx',this.value)">
+        <span class="slider-val" id="lbl_rx">1500</span>
+      </div>
+      <div class="slider-row">
+        <label>Pitch (RY)</label>
+        <input type="range" id="sl_ry" min="1000" max="2000" value="1500" oninput="updateSlider('ry',this.value)">
+        <span class="slider-val" id="lbl_ry">1500</span>
+      </div>
+      <div class="slider-row">
+        <label>Yaw (LX)</label>
+        <input type="range" id="sl_lx" min="1000" max="2000" value="1500" oninput="updateSlider('lx',this.value)">
+        <span class="slider-val" id="lbl_lx">1500</span>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-title">⚡ PID Parameters (từ firmware)</div>
+    <div class="card">
+      <div class="pid-axis-label">Roll / Pitch</div>
+      <div class="pid-grid">
+        <div class="pid-input-wrap"><label>Kp</label><input id="kp_rp" value="0.700993" oninput="updatePID()"></div>
+        <div class="pid-input-wrap"><label>Ki</label><input id="ki_rp" value="1.265" oninput="updatePID()"></div>
+        <div class="pid-input-wrap"><label>Kd</label><input id="kd_rp" value="0.1125" oninput="updatePID()"></div>
+      </div>
+      <div class="pid-axis-label">Góc (Kp Angle)</div>
+      <div class="pid-grid">
+        <div class="pid-input-wrap"><label>Kp</label><input id="kp_ang" value="2.0" oninput="updatePID()"></div>
+        <div class="pid-input-wrap"><label>—</label><input value="—" disabled></div>
+        <div class="pid-input-wrap"><label>—</label><input value="—" disabled></div>
+      </div>
+      <div class="pid-axis-label">Yaw</div>
+      <div class="pid-grid">
+        <div class="pid-input-wrap"><label>Kp</label><input id="kp_yaw" value="0.5" oninput="updatePID()"></div>
+        <div class="pid-input-wrap"><label>Ki</label><input id="ki_yaw" value="0" oninput="updatePID()"></div>
+        <div class="pid-input-wrap"><label>Kd</label><input id="kd_yaw" value="0" oninput="updatePID()"></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-title">🎯 Kịch bản kiểm tra</div>
+    <div class="card step-btns">
+      <button class="btn btn-primary" onclick="setScenario('hover')">Hover ổn định</button>
+      <button class="btn btn-yellow" onclick="setScenario('roll_step')">Step Roll 15°</button>
+      <button class="btn btn-yellow" onclick="setScenario('pitch_step')">Step Pitch 15°</button>
+      <button class="btn btn-yellow" onclick="setScenario('wind')">Gió ngẫu nhiên</button>
+      <button class="btn btn-yellow" onclick="setScenario('combined')">Roll+Pitch combo</button>
+      <button class="btn btn-yellow" onclick="setScenario('yaw_spin')">Yaw spin test</button>
+    </div>
+    <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+      <button class="btn btn-primary" onclick="toggleArm()" id="armBtn">ARM</button>
+      <button class="btn btn-danger" onclick="resetSim()">RESET</button>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-title">🔧 Motor outputs</div>
+    <div class="motors-grid">
+      <div class="motor-item">
+        <div class="motor-name">FL (pin27)</div>
+        <div class="motor-val m-fl" id="m1">1000</div>
+        <div class="motor-bar"><div class="motor-bar-fill" id="b1" style="background:#60a5fa;width:0%"></div></div>
+      </div>
+      <div class="motor-item">
+        <div class="motor-name">FR (pin26)</div>
+        <div class="motor-val m-fr" id="m2">1000</div>
+        <div class="motor-bar"><div class="motor-bar-fill" id="b2" style="background:#a78bfa;width:0%"></div></div>
+      </div>
+      <div class="motor-item">
+        <div class="motor-name">RL (pin14)</div>
+        <div class="motor-val m-rl" id="m3">1000</div>
+        <div class="motor-bar"><div class="motor-bar-fill" id="b3" style="background:#34d399;width:0%"></div></div>
+      </div>
+      <div class="motor-item">
+        <div class="motor-name">RR (pin13)</div>
+        <div class="motor-val m-rr" id="m4">1000</div>
+        <div class="motor-bar"><div class="motor-bar-fill" id="b4" style="background:#fb923c;width:0%"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CENTER CANVAS -->
+<div class="center-panel">
+  <div class="canvas-wrap">
+    <canvas id="simCanvas"></canvas>
+    <div class="overlay-hud">
+      <div class="hud-chip">
+        <span>ROLL</span><b id="hud_roll" class="b-b">0.0°</b>
+        <span>PITCH</span><b id="hud_pitch" class="b-b">0.0°</b>
+        <span>YAW</span><b id="hud_yaw" class="b-c">0.0°</b>
+      </div>
+      <div class="hud-chip">
+        <span>ωR</span><b id="hud_gr" class="b-g">0.0°/s</b>
+        <span>ωP</span><b id="hud_gp" class="b-g">0.0°/s</b>
+        <span>ωY</span><b id="hud_gy" class="b-g">0.0°/s</b>
+      </div>
+      <div class="hud-chip">
+        <span>Alt</span><b id="hud_alt" class="b-y">0.0m</b>
+        <span>THR</span><b id="hud_thr" class="b-y">0%</b>
+        <span>PID-R</span><b id="hud_pidr" class="b-c">0.0</b>
+        <span>PID-P</span><b id="hud_pidp" class="b-c">0.0</b>
+      </div>
+      <div class="hud-chip" id="statusChip">
+        <span id="armStatus" style="color:var(--red);font-weight:700">● DISARMED</span>
+      </div>
+    </div>
+  </div>
+  <div class="status-bar">
+    <div class="status-item"><div class="dot" id="armDot" style="background:var(--red)"></div><span id="armLabel">DISARMED</span></div>
+    <div class="status-item"><div class="dot dot-warn" id="warnDot" style="display:none"></div><span id="warnLabel" style="color:var(--yellow);display:none"></span></div>
+    <div style="margin-left:auto;font-size:.7rem;color:var(--muted)">Sim time: <span id="simTime" style="color:var(--text);font-family:'JetBrains Mono',monospace">0.00s</span></div>
+  </div>
+</div>
+
+<!-- RIGHT PANEL -->
+<div class="right-panel">
+  <div class="chart-section">
+    <div class="chart-label"><span>Roll Angle vs Setpoint</span><span id="lbl_roll_err" style="color:var(--red)">err: 0.0°</span></div>
+    <canvas class="chart" id="chartRoll"></canvas>
+  </div>
+  <div class="chart-section">
+    <div class="chart-label"><span>Pitch Angle vs Setpoint</span><span id="lbl_pitch_err" style="color:var(--red)">err: 0.0°</span></div>
+    <canvas class="chart" id="chartPitch"></canvas>
+  </div>
+  <div class="chart-section">
+    <div class="chart-label"><span>Motor Outputs (µs)</span><span id="lbl_motors"></span></div>
+    <canvas class="chart" id="chartMotors"></canvas>
+  </div>
+  <div class="chart-section">
+    <div class="chart-label"><span>PID Components (Roll)</span></div>
+    <canvas class="chart" id="chartPID"></canvas>
+  </div>
+</div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════
+// SIMULATION STATE — mirrors firmware exactly
+// ══════════════════════════════════════════════════
+const DT = 0.004; // 250Hz
+const MASS = 1.3; // kg
+const G = 9.81;
+const INERTIA_R = 0.012; // kg·m² roll
+const INERTIA_P = 0.012; // kg·m² pitch
+const INERTIA_Y = 0.022; // kg·m² yaw
+const ARM = 0.175; // motor arm 17.5cm
+const KF = 3e-6; // thrust constant N/(rpm²) - normalized to 1000-2000us
+const MAX_THRUST_TOTAL = 22; // N total (4 motors)
+
+let sim = {};
+let isArmed = false;
+let simTimeS = 0;
+let animId = null;
+let windActive = false;
+let windTimer = 0;
+
+// PID state
+let pid = {
+  kp: [0.700993, 0.700993, 0.5],
+  ki: [1.265, 1.265, 0.0],
+  kd: [0.1125, 0.1125, 0.0],
+  kp_ang: 2.0,
+  err: [0,0,0],
+  prev_err: [0,0,0],
+  integ: [0,0,0],
+  deriv: [0,0,0],
+  out: [0,0,0],
+  smoothGyro: [0,0,0],
+  alpha_gyro: 0.485,
+  alpha_d: 0.012,
+  alpha_motor: 0.35,
+};
+
+// Command (from sliders)
+let cmd = { throttle:1000, rx:1500, ry:1500, lx:1500 };
+const CENTER = { rx:1500, ry:1500, lx:1500 };
+
+// History for charts
+const HIST = 300;
+let hist = { t:[], roll:[], roll_sp:[], pitch:[], pitch_sp:[], m1:[], m2:[], m3:[], m4:[], pid_p:[], pid_i:[], pid_d:[] };
+
+function resetSim() {
+  sim = {
+    roll:0, pitch:0, yaw:0,
+    dRoll:0, dPitch:0, dYaw:0,
+    altitude:0, vZ:0,
+    angle_roll_filt:0, angle_pitch_filt:0,
+    smooth_m:[200,200,200,200],
+  };
+  pid.err=[0,0,0]; pid.prev_err=[0,0,0]; pid.integ=[0,0,0]; pid.deriv=[0,0,0]; pid.out=[0,0,0];
+  pid.smoothGyro=[0,0,0];
+  simTimeS=0;
+  hist={t:[],roll:[],roll_sp:[],pitch:[],pitch_sp:[],m1:[],m2:[],m3:[],m4:[],pid_p:[],pid_i:[],pid_d:[]};
+  windActive=false;
+  cmd.throttle=1000; cmd.rx=1500; cmd.ry=1500; cmd.lx=1500;
+  document.getElementById('sl_thr').value=1000; updateSlider('thr',1000);
+  document.getElementById('sl_rx').value=1500; updateSlider('rx',1500);
+  document.getElementById('sl_ry').value=1500; updateSlider('ry',1500);
+  document.getElementById('sl_lx').value=1500; updateSlider('lx',1500);
+  if(isArmed) { isArmed=false; updateArmUI(); }
+}
+
+function updateSlider(id, val) {
+  document.getElementById('lbl_'+id).textContent = val;
+  if(id==='thr') cmd.throttle=parseInt(val);
+  else if(id==='rx') cmd.rx=parseInt(val);
+  else if(id==='ry') cmd.ry=parseInt(val);
+  else if(id==='lx') cmd.lx=parseInt(val);
+}
+
+function updatePID() {
+  pid.kp[0]=pid.kp[1]=parseFloat(document.getElementById('kp_rp').value)||0;
+  pid.ki[0]=pid.ki[1]=parseFloat(document.getElementById('ki_rp').value)||0;
+  pid.kd[0]=pid.kd[1]=parseFloat(document.getElementById('kd_rp').value)||0;
+  pid.kp_ang=parseFloat(document.getElementById('kp_ang').value)||0;
+  pid.kp[2]=parseFloat(document.getElementById('kp_yaw').value)||0;
+  pid.ki[2]=parseFloat(document.getElementById('ki_yaw').value)||0;
+  pid.kd[2]=parseFloat(document.getElementById('kd_yaw').value)||0;
+}
+
+function toggleArm() {
+  if(!isArmed && cmd.throttle < 1100) { isArmed=true; pid.integ=[0,0,0]; pid.prev_err=[0,0,0]; updateArmUI(); }
+  else if(isArmed) { isArmed=false; updateArmUI(); }
+  else { setWarn('THR phải < 1100 để ARM!'); }
+}
+
+function updateArmUI() {
+  const a=isArmed;
+  document.getElementById('armBtn').textContent = a?'DISARM':'ARM';
+  document.getElementById('armBtn').className = a?'btn btn-danger':'btn btn-primary';
+  document.getElementById('armDot').style.background = a?'var(--green)':'var(--red)';
+  if(a) { document.getElementById('armDot').className='dot dot-armed'; } else { document.getElementById('armDot').className='dot'; }
+  document.getElementById('armLabel').textContent = a?'ARMED':'DISARMED';
+  document.getElementById('armStatus').textContent = a?'● ARMED':'● DISARMED';
+  document.getElementById('armStatus').style.color = a?'var(--green)':'var(--red)';
+}
+
+function setWarn(msg) {
+  document.getElementById('warnDot').style.display='block';
+  document.getElementById('warnLabel').style.display='inline';
+  document.getElementById('warnLabel').textContent=msg;
+  setTimeout(()=>{ document.getElementById('warnDot').style.display='none'; document.getElementById('warnLabel').style.display='none'; },2500);
+}
+
+// Scenarios
+let scenarioTimer = 0;
+let activeScenario = null;
+function setScenario(s) {
+  activeScenario=s; scenarioTimer=0;
+  if(s==='hover') {
+    cmd.throttle=1530; document.getElementById('sl_thr').value=1530; updateSlider('thr',1530);
+    if(!isArmed) toggleArm();
+  } else if(s==='roll_step'||s==='pitch_step') {
+    cmd.throttle=1530; document.getElementById('sl_thr').value=1530; updateSlider('thr',1530);
+    if(!isArmed) toggleArm();
+  } else if(s==='wind') {
+    windActive=true; cmd.throttle=1530;
+    document.getElementById('sl_thr').value=1530; updateSlider('thr',1530);
+    if(!isArmed) toggleArm();
+  } else if(s==='combined') {
+    cmd.throttle=1530; document.getElementById('sl_thr').value=1530; updateSlider('thr',1530);
+    if(!isArmed) toggleArm();
+  } else if(s==='yaw_spin') {
+    cmd.throttle=1530; document.getElementById('sl_thr').value=1530; updateSlider('thr',1530);
+    if(!isArmed) toggleArm();
+  }
+}
+
+function clamp(v,mn,mx){return Math.max(mn,Math.min(mx,v));}
+function constrain(v,mn,mx){return clamp(v,mn,mx);}
+
+// ══════════════════════════════════════════════════
+// CORE SIMULATION STEP — exact firmware logic
+// ══════════════════════════════════════════════════
+function simStep() {
+  const dt = DT;
+  scenarioTimer += dt;
+
+  // Scenario logic
+  if(activeScenario==='roll_step') {
+    cmd.rx = scenarioTimer < 1.0 ? 1500 : (scenarioTimer < 2.5 ? 1750 : 1500);
+    document.getElementById('sl_rx').value=cmd.rx; updateSlider('rx',cmd.rx);
+  } else if(activeScenario==='pitch_step') {
+    cmd.ry = scenarioTimer < 1.0 ? 1500 : (scenarioTimer < 2.5 ? 1750 : 1500);
+    document.getElementById('sl_ry').value=cmd.ry; updateSlider('ry',cmd.ry);
+  } else if(activeScenario==='combined') {
+    const t=scenarioTimer;
+    cmd.rx = 1500+200*Math.sin(t*2); cmd.ry=1500+150*Math.sin(t*1.5+0.8);
+    document.getElementById('sl_rx').value=Math.round(cmd.rx);
+    document.getElementById('sl_ry').value=Math.round(cmd.ry);
+  } else if(activeScenario==='yaw_spin') {
+    cmd.lx = 1500+300*Math.sin(scenarioTimer);
+    document.getElementById('sl_lx').value=Math.round(cmd.lx);
+  }
+
+  // Wind disturbance
+  let windTorqueR=0, windTorqueP=0;
+  if(windActive) {
+    windTorqueR = 0.8*(Math.random()-0.5)*Math.sin(simTimeS*3.7);
+    windTorqueP = 0.8*(Math.random()-0.5)*Math.sin(simTimeS*2.9+1);
+  }
+
+  // === FAILSAFE ===
+  if(!isArmed) {
+    // motors off
+    for(let i=0;i<4;i++) sim.smooth_m[i]=200;
+    return {motors:[1000,1000,1000,1000]};
+  }
+
+  // === readSensors (angle complementary filter sim) ===
+  // Simulate IMU reading from true sim angles + gyro rates
+  // Angle filter: 90% old + 10% new (same as firmware)
+  // We use sim state as ground truth
+  sim.angle_pitch_filt = sim.angle_pitch_filt*0.90 + sim.pitch*0.10;
+  sim.angle_roll_filt  = sim.angle_roll_filt*0.90  + sim.roll*0.10;
+
+  const angle_pitch = sim.angle_pitch_filt;
+  const angle_roll  = sim.angle_roll_filt;
+
+  // Failsafe: 60 deg tilt
+  if(Math.abs(angle_roll)>60||Math.abs(angle_pitch)>60) {
+    isArmed=false; updateArmUI(); setWarn('FAILSAFE: Nghiêng > 60°!'); return {motors:[1000,1000,1000,1000]};
+  }
+
+  // === calculatePID ===
+  // Angle outer loop -> rate setpoint
+  const DEADBAND = 15;
+  const tgt_roll_ang  = (Math.abs(cmd.rx-CENTER.rx)>DEADBAND)?(cmd.rx-CENTER.rx)*0.06:0;
+  const tgt_pitch_ang = (Math.abs(cmd.ry-CENTER.ry)>DEADBAND)?(cmd.ry-CENTER.ry)*0.06:0;
+
+  const target_rate = [
+    pid.kp_ang*(tgt_roll_ang  - angle_roll),
+    pid.kp_ang*(tgt_pitch_ang - angle_pitch),
+    (Math.abs(cmd.lx-CENTER.lx)>20)?(cmd.lx-CENTER.lx)*0.60:0,
+  ];
+
+  // Raw gyro from sim
+  const rawGyr = [-sim.dPitch, sim.dRoll, sim.dYaw]; // firmware mapping
+
+  const THR_I_GATE = 1100;
+  const MAX_PID=400, MAX_I=75;
+
+  // Stores for chart
+  let p_term=0,i_term=0,d_term=0;
+
+  for(let i=0;i<3;i++){
+    pid.smoothGyro[i] = pid.alpha_gyro*rawGyr[i]+(1-pid.alpha_gyro)*pid.smoothGyro[i];
+    pid.err[i] = target_rate[i]-pid.smoothGyro[i];
+
+    if(cmd.throttle>THR_I_GATE){
+      pid.integ[i]=constrain(pid.integ[i]+pid.err[i]*dt,-MAX_I,MAX_I);
+    } else { pid.integ[i]=0; }
+
+    const raw_d=(pid.err[i]-pid.prev_err[i])/dt;
+    pid.deriv[i]=(1-pid.alpha_d)*pid.deriv[i]+pid.alpha_d*raw_d;
+
+    pid.out[i]=constrain(
+      pid.kp[i]*pid.err[i]+pid.ki[i]*pid.integ[i]+pid.kd[i]*pid.deriv[i],
+      -MAX_PID,MAX_PID
+    );
+    pid.prev_err[i]=pid.err[i];
+
+    if(i===0){ p_term=pid.kp[i]*pid.err[i]; i_term=pid.ki[i]*pid.integ[i]; d_term=pid.kd[i]*pid.deriv[i]; }
+  }
+
+  // === applyMixer (Betaflight Quad-X) ===
+  const MIN_IDLE=200, MAX_THR=1000;
+  let thr=((cmd.throttle-1000)/1000)*1000;
+  if(thr<MIN_IDLE) thr=MIN_IDLE;
+
+  let m=[
+    thr+pid.out[0]-pid.out[1]-pid.out[2],  // FL
+    thr-pid.out[0]-pid.out[1]+pid.out[2],  // FR
+    thr+pid.out[0]+pid.out[1]+pid.out[2],  // RL
+    thr-pid.out[0]+pid.out[1]-pid.out[2],  // RR
+  ];
+
+  // Rescale
+  const m_max=Math.max(...m);
+  if(m_max>MAX_THR){ const sc=MAX_THR/m_max; for(let i=0;i<4;i++) m[i]*=sc; }
+
+  // EMA output smoothing (alpha=0.35)
+  const alpha_m=0.35;
+  for(let i=0;i<4;i++){
+    sim.smooth_m[i]=sim.smooth_m[i]*(1-alpha_m)+m[i]*alpha_m;
+  }
+
+  const pulses=sim.smooth_m.map(v=>1000+constrain(v,0,MAX_THR));
+
+  // === PHYSICS (simplified rigid body) ===
+  // Map pulses to thrust fraction (0-1)
+  const tf = pulses.map(p=>(p-1000)/1000);
+  const F_total = tf.reduce((a,b)=>a+b,0)/4 * MAX_THRUST_TOTAL; // total thrust N
+  const F_gz = F_total - MASS*G; // net vertical
+
+  // Torques: Betaflight Quad-X physical layout
+  // Roll torque = (FL+RL - FR-RR)*ARM*Kf_normalized
+  const NORM=MAX_THRUST_TOTAL/4;
+  const torque_R = ((tf[0]+tf[2])-(tf[1]+tf[3]))*ARM*NORM;
+  const torque_P = ((tf[0]+tf[1])-(tf[2]+tf[3]))*ARM*NORM;
+  // Yaw torque (FL+RR spin one way, FR+RL spin other)
+  const torque_Y = ((tf[0]+tf[3])-(tf[1]+tf[2]))*0.008;
+
+  // Angular acceleration
+  const ddRoll  = (torque_R+windTorqueR)/INERTIA_R;
+  const ddPitch = (torque_P+windTorqueP)/INERTIA_P;
+  const ddYaw   = torque_Y/INERTIA_Y;
+
+  // Integrate
+  sim.dRoll  = clamp(sim.dRoll+ddRoll*dt,-720,720);
+  sim.dPitch = clamp(sim.dPitch+ddPitch*dt,-720,720);
+  sim.dYaw   = clamp(sim.dYaw+ddYaw*dt,-360,360);
+
+  sim.roll   = clamp(sim.roll+sim.dRoll*dt,-180,180);
+  sim.pitch  = clamp(sim.pitch+sim.dPitch*dt,-180,180);
+  sim.yaw   += sim.dYaw*dt;
+
+  // Altitude
+  sim.vZ=clamp(sim.vZ+F_gz/MASS*dt,-20,20);
+  sim.altitude=Math.max(0,sim.altitude+sim.vZ*dt);
+
+  return { motors:pulses, p_term, i_term, d_term, tgt_roll_ang, tgt_pitch_ang };
+}
+
+// ══════════════════════════════════════════════════
+// RENDERING
+// ══════════════════════════════════════════════════
+const canvas=document.getElementById('simCanvas');
+const ctx=canvas.getContext('2d');
+
+function resizeCanvas(){
+  const wrap=canvas.parentElement;
+  canvas.width=wrap.clientWidth;
+  canvas.height=wrap.clientHeight;
+}
+resizeCanvas();
+window.addEventListener('resize',resizeCanvas);
+
+function drawDrone(ctx,cx,cy,roll,pitch,motorVals,scale=1){
+  ctx.save();
+  ctx.translate(cx,cy);
+  
+  // Perspective from roll/pitch
+  const rxR=roll*Math.PI/180, pyR=pitch*Math.PI/180;
+  const sinR=Math.sin(rxR), cosR=Math.cos(rxR);
+  const sinP=Math.sin(pyR), cosP=Math.cos(pyR);
+
+  const arm=90*scale;
+  // Motor positions in body frame (Quad-X)
+  const bodyPos=[
+    {x:-arm,y:-arm,label:'FL',color:'#60a5fa'},  // FL
+    {x: arm,y:-arm,label:'FR',color:'#a78bfa'},  // FR
+    {x:-arm,y: arm,label:'RL',color:'#34d399'},  // RL
+    {x: arm,y: arm,label:'RR',color:'#fb923c'},  // RR
+  ];
+
+  // Project to screen with roll & pitch
+  const projected=bodyPos.map(p=>{
+    const x3=-p.x, y3=p.y*cosR, z3=-p.y*sinR;
+    const px=x3*cosP+0; const py=y3-z3*sinP*0.5;
+    return {px, py, label:p.label, color:p.color};
+  });
+
+  // Draw arms
+  ctx.strokeStyle='rgba(255,255,255,0.15)';
+  ctx.lineWidth=3;
+  ctx.beginPath();
+  ctx.moveTo(projected[0].px,projected[0].py);
+  ctx.lineTo(projected[3].px,projected[3].py);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(projected[1].px,projected[1].py);
+  ctx.lineTo(projected[2].px,projected[2].py);
+  ctx.stroke();
+
+  // Center body
+  const bodySize=22*scale;
+  ctx.save();
+  const angle=Math.atan2(-sinR,cosR)*0.3;
+  ctx.rotate(angle);
+  const bodyGrad=ctx.createRadialGradient(0,0,2,0,0,bodySize);
+  bodyGrad.addColorStop(0,'#3b82f6');
+  bodyGrad.addColorStop(1,'#1e40af');
+  ctx.fillStyle=bodyGrad;
+  ctx.beginPath();
+  ctx.roundRect(-bodySize,-bodySize,bodySize*2,bodySize*2,6);
+  ctx.fill();
+  ctx.strokeStyle='rgba(96,165,250,0.5)';
+  ctx.lineWidth=1.5;
+  ctx.stroke();
+  // Arrow showing forward
+  ctx.fillStyle='rgba(255,255,255,0.9)';
+  ctx.beginPath();
+  ctx.moveTo(0,-bodySize*0.5);
+  ctx.lineTo(-6,4);
+  ctx.lineTo(6,4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // Propellers
+  projected.forEach((p,i)=>{
+    const pulse=motorVals[i]||1000;
+    const thr=(pulse-1000)/1000;
+    const propR=24*scale;
+    const glow=thr;
+
+    ctx.save();
+    ctx.translate(p.px,p.py);
+
+    // Motor mount
+    ctx.beginPath();
+    ctx.arc(0,0,10*scale,0,Math.PI*2);
+    ctx.fillStyle='#1a2235';
+    ctx.fill();
+    ctx.strokeStyle=p.color;
+    ctx.lineWidth=1.5;
+    ctx.stroke();
+
+    // Spinning prop blur
+    if(glow>0.05){
+      ctx.beginPath();
+      ctx.arc(0,0,propR,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${hexToRgb(p.color)},${0.08+glow*0.22})`;
+      ctx.fill();
+      ctx.strokeStyle=p.color;
+      ctx.lineWidth=2+glow*3;
+      ctx.globalAlpha=0.4+glow*0.5;
+      ctx.stroke();
+      ctx.globalAlpha=1;
+    }
+
+    // Label
+    ctx.fillStyle='rgba(255,255,255,0.6)';
+    ctx.font=`${Math.round(9*scale)}px JetBrains Mono`;
+    ctx.textAlign='center';
+    ctx.fillText(p.label, 0, 28*scale);
+
+    // RPM bar arc
+    if(glow>0.01){
+      ctx.beginPath();
+      ctx.arc(0,0,propR+4,-Math.PI/2,-Math.PI/2+glow*Math.PI*2);
+      ctx.strokeStyle=p.color;
+      ctx.lineWidth=3;
+      ctx.globalAlpha=0.7;
+      ctx.stroke();
+      ctx.globalAlpha=1;
+    }
+    ctx.restore();
+  });
+
+  // Ground reference level indicator (pitch tilt)
+  const horizY=Math.sin(pyR)*30;
+  ctx.strokeStyle='rgba(16,185,129,0.25)';
+  ctx.setLineDash([4,4]);
+  ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.moveTo(-150,-horizY-arm*Math.tan(rxR));
+  ctx.lineTo(150, horizY+arm*Math.tan(rxR));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.restore();
+}
+
+function hexToRgb(hex){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return `${r},${g},${b}`;
+}
+
+// Attitude indicator (artificial horizon)
+function drawAHI(ctx,x,y,r,roll,pitch){
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.clip();
+
+  // Sky/ground split
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.rotate(-roll*Math.PI/180);
+  const pitchPx = pitch/60*r;
+  const skyGrad=ctx.createLinearGradient(0,-r,0,pitchPx);
+  skyGrad.addColorStop(0,'#0c4a6e');
+  skyGrad.addColorStop(1,'#0ea5e9');
+  ctx.fillStyle=skyGrad;
+  ctx.fillRect(-r,-r,r*2,r+pitchPx);
+  const grdGrad=ctx.createLinearGradient(0,pitchPx,0,r);
+  grdGrad.addColorStop(0,'#713f12');
+  grdGrad.addColorStop(1,'#451a03');
+  ctx.fillStyle=grdGrad;
+  ctx.fillRect(-r,pitchPx,r*2,r);
+  // Horizon line
+  ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(-r,pitchPx); ctx.lineTo(r,pitchPx); ctx.stroke();
+  // Pitch lines
+  for(let p=-30;p<=30;p+=10){
+    if(p===0) continue;
+    const py=pitchPx+p/60*r;
+    const len=p%20===0?20:12;
+    ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(-len,py); ctx.lineTo(len,py); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.font='8px Inter';
+    ctx.textAlign='left'; ctx.fillText(Math.abs(p),len+2,py+3);
+  }
+  ctx.restore();
+
+  // Center reticle
+  ctx.strokeStyle='#fbbf24'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(x-45,y); ctx.lineTo(x-15,y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+15,y); ctx.lineTo(x+45,y); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.stroke();
+
+  // Border
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=2; ctx.stroke();
+
+  // Roll indicator
+  ctx.save(); ctx.translate(x,y);
+  const rollAngles=[-60,-45,-30,-20,-10,0,10,20,30,45,60];
+  rollAngles.forEach(a=>{
+    const ar=a*Math.PI/180;
+    ctx.save(); ctx.rotate(ar);
+    ctx.strokeStyle=a===0?'#fbbf24':'rgba(255,255,255,0.4)';
+    ctx.lineWidth=a===0?2:1;
+    ctx.beginPath(); ctx.moveTo(0,-r+2); ctx.lineTo(0,-r+(a%30===0?10:6)); ctx.stroke();
+    ctx.restore();
+  });
+  // Roll pointer
+  ctx.save(); ctx.rotate(-roll*Math.PI/180);
+  ctx.fillStyle='#fbbf24';
+  ctx.beginPath(); ctx.moveTo(0,-r+12); ctx.lineTo(-5,-r+4); ctx.lineTo(5,-r+4); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+  ctx.restore();
+}
+
+// ══════════════════════════════════════════════════
+// CHART DRAWING
+// ══════════════════════════════════════════════════
+function drawChart(canvasId, datasets, yMin, yMax, label='') {
+  const c=document.getElementById(canvasId);
+  const cx=c.getContext('2d');
+  c.width=c.clientWidth; c.height=c.clientHeight;
+  const W=c.width, H=c.height;
+  const PAD=8;
+  cx.clearRect(0,0,W,H);
+  // Grid
+  cx.strokeStyle='rgba(255,255,255,0.05)'; cx.lineWidth=1;
+  for(let i=0;i<=4;i++){
+    const y=PAD+(H-PAD*2)*(1-i/4);
+    cx.beginPath(); cx.moveTo(PAD,y); cx.lineTo(W-PAD,y); cx.stroke();
+    cx.fillStyle='rgba(255,255,255,0.2)'; cx.font='7px JetBrains Mono'; cx.textAlign='right';
+    const v=(yMax-yMin)*i/4+yMin;
+    cx.fillText(v.toFixed(0),PAD+18,y+3);
+  }
+  // Zero line
+  if(yMin<0&&yMax>0){
+    const zy=PAD+(H-PAD*2)*(yMax/(yMax-yMin));
+    cx.strokeStyle='rgba(255,255,255,0.15)'; cx.setLineDash([2,2]); cx.lineWidth=1;
+    cx.beginPath(); cx.moveTo(PAD,zy); cx.lineTo(W-PAD,zy); cx.stroke(); cx.setLineDash([]);
+  }
+
+  datasets.forEach(({data,color,fill})=>{
+    if(!data||data.length<2) return;
+    const n=data.length;
+    const step=(W-PAD*2)/(HIST-1);
+    const startIdx=Math.max(0,n-HIST);
+    cx.beginPath();
+    let first=true;
+    for(let i=startIdx;i<n;i++){
+      const xi=PAD+(i-startIdx)*step;
+      const yi=PAD+(H-PAD*2)*(1-(data[i]-yMin)/(yMax-yMin));
+      if(first){cx.moveTo(xi,yi);first=false;}else{cx.lineTo(xi,yi);}
+    }
+    if(fill){
+      cx.lineTo(W-PAD,H-PAD); cx.lineTo(PAD,H-PAD); cx.closePath();
+      const g=cx.createLinearGradient(0,PAD,0,H-PAD);
+      g.addColorStop(0,color.replace(')',',0.3)').replace('rgb','rgba'));
+      g.addColorStop(1,color.replace(')',',0)').replace('rgb','rgba'));
+      cx.fillStyle=g; cx.fill();
+      cx.beginPath(); first=true;
+      for(let i=startIdx;i<n;i++){
+        const xi=PAD+(i-startIdx)*step;
+        const yi=PAD+(H-PAD*2)*(1-(data[i]-yMin)/(yMax-yMin));
+        if(first){cx.moveTo(xi,yi);first=false;}else{cx.lineTo(xi,yi);}
+      }
+    }
+    cx.strokeStyle=color; cx.lineWidth=1.5; cx.stroke();
+  });
+}
+
+// ══════════════════════════════════════════════════
+// MAIN LOOP
+// ══════════════════════════════════════════════════
+let stepsPerFrame=15; // 250Hz / ~16fps ≈ 15 steps
+let frameCount=0;
+
+function mainLoop(){
+  let lastResult=null;
+  for(let s=0;s<stepsPerFrame;s++){
+    lastResult=simStep();
+    simTimeS+=DT;
+  }
+  frameCount++;
+
+  const {motors, p_term, i_term, d_term, tgt_roll_ang, tgt_pitch_ang}=lastResult;
+
+  // Push to history
+  if(hist.t.length>=HIST*10){ Object.keys(hist).forEach(k=>hist[k]=[hist[k][hist[k].length-1]]); }
+  hist.t.push(simTimeS);
+  hist.roll.push(sim.roll);
+  hist.roll_sp.push(tgt_roll_ang||0);
+  hist.pitch.push(sim.pitch);
+  hist.pitch_sp.push(tgt_pitch_ang||0);
+  hist.m1.push(motors[0]);hist.m2.push(motors[1]);hist.m3.push(motors[2]);hist.m4.push(motors[3]);
+  hist.pid_p.push(p_term||0);hist.pid_i.push(i_term||0);hist.pid_d.push(d_term||0);
+
+  // Render canvas
+  const W=canvas.width, H=canvas.height;
+  ctx.clearRect(0,0,W,H);
+
+  // Background grid
+  ctx.strokeStyle='rgba(59,130,246,0.04)'; ctx.lineWidth=1;
+  for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+
+  // Ground
+  const groundY=H*0.82;
+  const grdGrad=ctx.createLinearGradient(0,groundY,0,H);
+  grdGrad.addColorStop(0,'rgba(16,185,129,0.15)');
+  grdGrad.addColorStop(1,'rgba(16,185,129,0)');
+  ctx.fillStyle=grdGrad; ctx.fillRect(0,groundY,W,H-groundY);
+  ctx.strokeStyle='rgba(16,185,129,0.3)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(0,groundY); ctx.lineTo(W,groundY); ctx.stroke();
+  ctx.fillStyle='rgba(16,185,129,0.4)'; ctx.font='10px Inter';
+  ctx.fillText('Ground',10,groundY-5);
+
+  // Altitude visualization
+  const maxAlt=10;
+  const droneScreenY=groundY-clamp(sim.altitude/maxAlt,0,1)*(groundY-H*0.18);
+  const cx_pos=W/2;
+
+  // Shadow on ground
+  const shadowScale=clamp(1-sim.altitude/(maxAlt*1.5),0.1,1);
+  const shadowGrad=ctx.createRadialGradient(cx_pos,groundY,0,cx_pos,groundY,60*shadowScale);
+  shadowGrad.addColorStop(0,'rgba(0,0,0,0.4)');
+  shadowGrad.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=shadowGrad;
+  ctx.beginPath(); ctx.ellipse(cx_pos,groundY,60*shadowScale,15*shadowScale,0,0,Math.PI*2); ctx.fill();
+
+  // Altitude dashed line
+  if(sim.altitude>0.1){
+    ctx.setLineDash([3,4]); ctx.strokeStyle='rgba(245,158,11,0.3)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(cx_pos,groundY); ctx.lineTo(cx_pos,droneScreenY+20); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Drone body
+  const droneScale=Math.min(W/600,H/500)*1.1;
+  drawDrone(ctx,cx_pos,droneScreenY,sim.roll,sim.pitch,motors,droneScale);
+
+  // AHI (Artificial horizon indicator)
+  const ahiR=65;
+  drawAHI(ctx,W-ahiR-16,H-ahiR-16,ahiR,sim.roll,sim.pitch);
+  ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.font='8px Inter'; ctx.textAlign='center';
+  ctx.fillText('AHI',W-ahiR-16,H-3);
+
+  // Stabilty indicator
+  const stability=Math.max(0,1-(Math.abs(sim.roll)+Math.abs(sim.pitch))/60);
+  const stabColor=stability>0.8?'#10b981':stability>0.5?'#f59e0b':'#ef4444';
+  ctx.fillStyle=stabColor+'33'; ctx.strokeStyle=stabColor; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.roundRect(16,H-50,150,34,8); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=stabColor; ctx.font='bold 10px Inter'; ctx.textAlign='left';
+  const stabPct=Math.round(stability*100);
+  ctx.fillText(`Stability: ${stabPct}%`,26,H-30);
+  const barW=130*stability;
+  ctx.fillStyle=stabColor; ctx.beginPath();
+  ctx.roundRect(18,H-22,barW,8,4); ctx.fill();
+
+  // Update HUD elements
+  document.getElementById('hud_roll').textContent=sim.roll.toFixed(1)+'°';
+  document.getElementById('hud_pitch').textContent=sim.pitch.toFixed(1)+'°';
+  document.getElementById('hud_yaw').textContent=sim.yaw.toFixed(1)+'°';
+  document.getElementById('hud_gr').textContent=sim.dRoll.toFixed(1)+'°/s';
+  document.getElementById('hud_gp').textContent=sim.dPitch.toFixed(1)+'°/s';
+  document.getElementById('hud_gy').textContent=sim.dYaw.toFixed(1)+'°/s';
+  document.getElementById('hud_alt').textContent=sim.altitude.toFixed(2)+'m';
+  const thrPct=Math.round((cmd.throttle-1000)/10);
+  document.getElementById('hud_thr').textContent=thrPct+'%';
+  document.getElementById('hud_pidr').textContent=pid.out[0].toFixed(1);
+  document.getElementById('hud_pidp').textContent=pid.out[1].toFixed(1);
+  document.getElementById('simTime').textContent=simTimeS.toFixed(1)+'s';
+
+  // Motor display
+  motors.forEach((v,i)=>{
+    document.getElementById('m'+(i+1)).textContent=Math.round(v);
+    document.getElementById('b'+(i+1)).style.width=((v-1000)/10)+'%';
+  });
+
+  // Charts
+  const rollErr=sim.roll-(hist.roll_sp[hist.roll_sp.length-1]||0);
+  const pitchErr=sim.pitch-(hist.pitch_sp[hist.pitch_sp.length-1]||0);
+  document.getElementById('lbl_roll_err').textContent='err: '+rollErr.toFixed(1)+'°';
+  document.getElementById('lbl_pitch_err').textContent='err: '+pitchErr.toFixed(1)+'°';
+  document.getElementById('lbl_roll_err').style.color=Math.abs(rollErr)<2?'var(--green)':'var(--red)';
+  document.getElementById('lbl_pitch_err').style.color=Math.abs(pitchErr)<2?'var(--green)':'var(--red)';
+
+  if(frameCount%2===0){
+    drawChart('chartRoll',[
+      {data:hist.roll,color:'#60a5fa',fill:true},
+      {data:hist.roll_sp,color:'#f59e0b',fill:false},
+    ],-40,40);
+    drawChart('chartPitch',[
+      {data:hist.pitch,color:'#a78bfa',fill:true},
+      {data:hist.pitch_sp,color:'#f59e0b',fill:false},
+    ],-40,40);
+    drawChart('chartMotors',[
+      {data:hist.m1,color:'#60a5fa'},{data:hist.m2,color:'#a78bfa'},
+      {data:hist.m3,color:'#34d399'},{data:hist.m4,color:'#fb923c'},
+    ],1000,2000);
+    drawChart('chartPID',[
+      {data:hist.pid_p,color:'#60a5fa'},
+      {data:hist.pid_i,color:'#10b981'},
+      {data:hist.pid_d,color:'#f59e0b'},
+    ],-150,150);
+  }
+
+  animId=requestAnimationFrame(mainLoop);
+}
+
+// Init
+resetSim();
+mainLoop();
+</script>
+</body>
+</html>
