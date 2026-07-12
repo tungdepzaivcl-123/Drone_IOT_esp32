@@ -126,14 +126,14 @@ uint8_t remoteMAC[] = {0xB0, 0xA6, 0x04, 0x58, 0x94, 0x48};
 // I nhỏ thôi để tránh tich luy qua nhanh
 // Tuyệt đối KHÔNG dùng I-term Roll khi mới bay để dễ debug
 // ═══════════════════════════════════════════════════
-//                    Roll   Pitch  Yaw
-float kp_inner[3] = { 0.32f, 0.45f, 1.00f };  // [V7.1] Yaw P=1.0 (Tang manh de chong xoay tron)
-float ki_inner[3] = { 0.20f, 0.10f, 0.30f };  // [V7.1] Yaw I=0.30 (Giu huong khi bay)
-float kd_inner[3] = { 0.025f,0.055f,0.00f };  // Yaw D=0 (khong dung D cho Yaw)
-float kp_angle    = 1.50f;   // An toan: du nhanh nhung khong qua gat
-float alpha_gyro  = 0.70f;   // [V7.4] Tang tu 0.50->0.70: noise thap (0.02deg), phan ung nhanh hon
-float alpha_motor = 0.50f;
-float alpha_d     = 0.30f;   // [V7.4] Tang tu 0.20->0.30: D-term nhanh hon, noise cho phep
+//                    Roll    Pitch   Yaw
+float kp_inner[3] = { 0.45f,  0.50f,  2.00f };
+float ki_inner[3] = { 0.04f,  0.04f,  0.20f };
+float kd_inner[3] = { 0.012f, 0.015f, 0.00f };
+float kp_angle    = 2.20f;
+float alpha_gyro  = 0.60f;
+float alpha_motor = 0.35f;
+float alpha_d     = 0.18f;
 
 
 
@@ -155,10 +155,19 @@ float angle_roll  = 0.0f;
 float angle_pitch = 0.0f;
 
 #define MAX_PID    400.0f
-#define MAX_I        20.0f   // [V7.0] Giam xuong 20: I-term chi du bu lech nhe
+#define MAX_I       250.0f   // [FIX] Tang len 250 de bu lech trong tam (drone nga sau)
 #define MAX_THR   1000.0f
-#define MIN_IDLE   120.0f    // Pulse 1120us
-#define THR_I_GATE 1380      // Chi bat I-term khi ga > 1380
+#define MIN_IDLE   150.0f    // Pulse 1150us
+#define THR_I_GATE 1350      // Khong cho I-term tich khi drone con le tren mat dat
+#define PID_PROFILE_VERSION 20260704UL
+#define TAKEOFF_PID_MIN_LIMIT 120.0f
+#define TAKEOFF_PID_RAMP_START 1200
+#define TAKEOFF_PID_RAMP_END   1600
+#define RUNAWAY_THR_US 1250
+#define RUNAWAY_GRACE_MS 700
+#define RUNAWAY_HOLD_MS 180
+#define RUNAWAY_PID_LIMIT 330.0f
+#define RUNAWAY_TILT_DEG 35.0f
 
 
 // Trim bù trọng tâm — dùng sau khi đã calib MPU
@@ -769,9 +778,9 @@ input[type=number]{width:68px;background:#0a1520;border:1px solid #1e3a5f;border
   <td><input type="number" name="kd_p" step="0.01" min="0" max="1" value=")HTML";
   h += String(kd_inner[1],3); h += R"HTML("></td></tr>
   <tr><td><span class="lbl y">YAW</span></td>
-  <td><input type="number" name="kp_y" step="0.01" min="0" max="3" value=")HTML";
+  <td><input type="number" name="kp_y" step="0.01" min="0" max="5" value=")HTML";
   h += String(kp_inner[2],3); h += R"HTML("></td>
-  <td><input type="number" name="ki_y" step="0.001" min="0" max="0.5" value=")HTML";
+  <td><input type="number" name="ki_y" step="0.001" min="0" max="2" value=")HTML";
   h += String(ki_inner[2],3); h += R"HTML("></td>
   <td><input type="number" name="kd_y" step="0.01" min="0" max="1" value=")HTML";
   h += String(kd_inner[2],3); h += R"HTML("></td></tr>
@@ -1089,9 +1098,7 @@ void readSensors() {
   if (!mpuOK) return;
   mpu.update();  // [V5.0 #7] Wire timeout 3ms bảo vệ khỏi I2C hang
 
-  // [V7.3 CRITICAL FIX] Dao dau Pitch de chong lat nguoc!
-  // Neu mui ngoc len (Nose UP), AngleX duong -> can angle_pitch AM de PID day mui xuong.
-  angle_pitch = -(mpu.getAngleX() + pitch_trim_deg);
+  angle_pitch = (mpu.getAngleX() + pitch_trim_deg);
   
   // [V5.3 FIX ROLL] Dao dau angle_roll
   angle_roll  = -(mpu.getAngleY() + roll_trim_deg);
@@ -1102,9 +1109,9 @@ void readSensors() {
   static unsigned long lastDbg = 0;
   if (millis() - lastDbg > 500) {
     lastDbg = millis();
-    Serial.printf("[SENSOR] roll=%.1f pitch=%.1f | GyrX=%.1f GyrY=%.1f | vz=%.2f | alt=%.2fm | armed=%d\n",
+    Serial.printf("[SENSOR] roll=%.1f pitch=%.1f | GyrX=%.1f GyrY=%.1f GyrZ=%.1f | vz=%.2f | alt=%.2fm | armed=%d\n",
                   angle_roll, angle_pitch,
-                  mpu.getGyroX(), mpu.getGyroY(),
+                  mpu.getGyroX(), mpu.getGyroY(), mpu.getGyroZ(),
                   alt_vz, fb.altitude, (int)isArmed);
   }
 }
@@ -1331,11 +1338,11 @@ void calculatePID(float dt) {
 
   // [V6.2 + V7.3 FIX] rawGyr:
   // Roll  (Y): Dao dau de khop voi angle_roll
-  // Pitch (X): Dao dau de khop voi angle_pitch (chong lat nguoc)
+  // Pitch (X): Khop voi testmotoor.ino (khong dao dau)
   // Yaw   (Z): Giu nguyen, Right-hand rule (CCW = duong) la dung cho Yaw mixer hien tai
   float rawGyr[3];
   rawGyr[0] = -mpu.getGyroY();   // Roll
-  rawGyr[1] = -mpu.getGyroX();   // [FIX V7.3] Pitch phai dao dau!
+  rawGyr[1] = mpu.getGyroX();    // Pitch
   rawGyr[2] = +mpu.getGyroZ();   // Yaw
 
   // Yaw debug (1s)
@@ -1356,19 +1363,18 @@ void calculatePID(float dt) {
 
     // I-term: tích khi throttle đủ cao hoặc alt-hold
     bool ok_to_integrate = (cmd.throttle > THR_I_GATE) || alt_hold_on;
+    // [FIX] Gioi han I-term rieng cho tung truc (tranh Yaw windup tren mat dat gay xoay)
+    // Roll: 80, Pitch: 250 (de nang duoi nang), Yaw: 30
+    float max_i_axis[3] = {80.0f, 250.0f, 30.0f};
+    
     if (ok_to_integrate) {
       integral_inner[i] = constrain(
         integral_inner[i] + error_inner[i] * dt,
-        -MAX_I, MAX_I
+        -max_i_axis[i], max_i_axis[i]
       );
-      // [V5.2 FIX] Anti-windup: decay nhanh hơn khi error nhỏ (drone gần ổn định)
-      // 0.995^250Hz = 28% sau 1s → quá hung hãng
-      // 0.9998^250Hz = 95% sau 1s → tích lũy gây drift kéo dài!
-      // Giải pháp: decay theo biên độ error
-      float decay = (abs(error_inner[i]) < 2.0f)  ? 0.990f :   // Gần center: decay nhanh
-                    (abs(error_inner[i]) < 8.0f)  ? 0.9985f :  // Xa vừa: decay trung bình
-                                                     0.9998f;   // Sai số lớn: giữ I
-      integral_inner[i] *= decay;
+      // [FIX] Khong dung anti-windup decay kieu nhan he so! 
+      // Decay lam mat I-term khien drone khong the tu can bang neu bi lech trong tam.
+      // I-term da duoc constrain boi MAX_I o tren.
     } else {
       // Dưới THR_I_GATE: xả I-term nhanh về 0 (tránh windup khi hover thấp)
       integral_inner[i] *= 0.95f;
@@ -1478,12 +1484,13 @@ void applyMixer() {
     thr = constrain(thr, MIN_IDLE, MAX_THR);
   }
 
-  // Quad-X mixer (Sign Paradox Fix V4.3)
-  float m0 = thr - pid_inner[0] - pid_inner[1] - pid_inner[2]; // FR (M1) CCW
-  float m1 = thr + pid_inner[0] - pid_inner[1] + pid_inner[2]; // FL (M2) CW
-  float m2 = thr - pid_inner[0] + pid_inner[1] + pid_inner[2]; // RR (M3) CW
-  float m3 = thr + pid_inner[0] + pid_inner[1] - pid_inner[2]; // RL (M4) CCW
-
+  // Quad-X mixer (Sign Paradox Fix V4.3) - ĐÃ SỬA THÀNH PROPS OUT!
+  // Đảo dấu Yaw (pid_inner[2]) để tương thích với cấu hình cánh tản ra ngoài (Props Out)
+  float m0 = thr - pid_inner[0] - pid_inner[1] + pid_inner[2]; // FR (CW)
+  float m1 = thr + pid_inner[0] - pid_inner[1] - pid_inner[2]; // FL (CCW)
+  float m2 = thr - pid_inner[0] + pid_inner[1] - pid_inner[2]; // RR (CCW)
+  float m3 = thr + pid_inner[0] + pid_inner[1] + pid_inner[2]; // RL (CW)
+  
   float m[4] = {m0, m1, m2, m3};
 
   // Motor trim offset (bù lệch cơ học)

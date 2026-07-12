@@ -103,8 +103,11 @@ const float ALPHA_RC = 0.20f;
 // [FIX] Yaw joystick center calibration
 // Joystick neutral VL khong phai ADC midpoint (2048) -> phai doc tai boot
 // Neu KHÔNG doc: yaw luc nao cung lech -> pid2 max -> M1/M4 nong
-int yaw_neutral_adc = 2048;  // Se doc lai trong setup()
-#define YAW_DEADZONE_US 80   // Deadzone yaw tren RC (us) - lon de an toan
+int yaw_neutral_adc   = 2048;  // Se doc lai trong setup()
+int pitch_neutral_adc = 2048;
+int roll_neutral_adc  = 2048;
+#define YAW_DEADZONE_US   80   // Deadzone yaw tren RC (us) - lon de an toan
+#define STICK_DEADZONE_US 60
 
 // ── ESP-NOW TIMING ────────────────────────────────────────────
 static unsigned long lastSendTime = 0;
@@ -126,6 +129,10 @@ int readSmooth(int pin) {
   long s = 0;
   for (int i = 0; i < 8; i++) s += analogRead(pin);
   return (int)(s / 8);
+}
+
+int centeredPulseFromADC(int adc, int neutral_adc) {
+  return constrain(1500 + (adc - neutral_adc) * 500 / 2048, 1000, 2000);
 }
 
 // ── HELPER LCD ────────────────────────────────────────────────
@@ -258,12 +265,18 @@ void setup() {
   // [FIX] Doc yaw joystick center tai boot (truoc khi user cham stick)
   // Day la fix chinh cho bug pid2=-300: joystick neutral != ADC 2048
   {
-    long s = 0;
-    for (int i = 0; i < 30; i++) { s += analogRead(PIN_JOY_YAW); delay(5); }
-    yaw_neutral_adc = (int)(s / 30);
-    Serial.printf("[CAL] yaw_neutral_adc=%d (map->%d us)\n",
-      yaw_neutral_adc,
-      (int)map(yaw_neutral_adc, 0, 4095, 1000, 2000));
+    long sy = 0, sp = 0, sr = 0;
+    for (int i = 0; i < 30; i++) {
+      sy += analogRead(PIN_JOY_YAW);
+      sp += analogRead(PIN_JOY_PIT);
+      sr += analogRead(PIN_JOY_ROLL);
+      delay(5);
+    }
+    yaw_neutral_adc   = (int)(sy / 30);
+    pitch_neutral_adc = (int)(sp / 30);
+    roll_neutral_adc  = (int)(sr / 30);
+    Serial.printf("[CAL] yaw_adc=%d pitch_adc=%d roll_adc=%d\n",
+                  yaw_neutral_adc, pitch_neutral_adc, roll_neutral_adc);
   }
 
   delay(800);
@@ -281,10 +294,9 @@ void loop() {
   // [FIX] Yaw: map relative to calibrated neutral, khong dung 0-4095 fixed
   // Truoc: map(adc, 0,4095, 1000,2000) -> neu neutral=61, yaw=1015 (lech 485us!)
   // Sau:   1500 + (adc - neutral) * 500/2048 -> neutral luon = 1500
-  int raw_yaw_adc = readSmooth(PIN_JOY_YAW);
-  int raw_yaw   = constrain(1500 + (raw_yaw_adc - yaw_neutral_adc) * 500 / 2048, 1000, 2000);
-  int raw_pitch = map(readSmooth(PIN_JOY_PIT),  0, 4095, 1000, 2000);
-  int raw_roll  = map(readSmooth(PIN_JOY_ROLL), 0, 4095, 1000, 2000);
+  int raw_yaw   = centeredPulseFromADC(readSmooth(PIN_JOY_YAW),  yaw_neutral_adc);
+  int raw_pitch = centeredPulseFromADC(readSmooth(PIN_JOY_PIT),  pitch_neutral_adc);
+  int raw_roll  = centeredPulseFromADC(readSmooth(PIN_JOY_ROLL), roll_neutral_adc);
 
   smooth_thr  = smooth_thr  * (1.0f - ALPHA_RC) + raw_thr   * ALPHA_RC;
   smooth_yaw  = smooth_yaw  * (1.0f - ALPHA_RC) + raw_yaw   * ALPHA_RC;
@@ -297,9 +309,9 @@ void loop() {
   int val_roll  = (int)smooth_roll;
 
   // ── 2. DEADZONE ───────────────────────────────────────────
-  if (abs(val_yaw   - 1500) < YAW_DEADZONE_US) val_yaw   = 1500;  // Yaw deadzone lon 80us
-  if (abs(val_pitch - 1500) < 50) val_pitch = 1500;
-  if (abs(val_roll  - 1500) < 50) val_roll  = 1500;
+  if (abs(val_yaw   - 1500) < YAW_DEADZONE_US)   val_yaw   = 1500;  // Yaw deadzone lon 80us
+  if (abs(val_pitch - 1500) < STICK_DEADZONE_US) val_pitch = 1500;
+  if (abs(val_roll  - 1500) < STICK_DEADZONE_US) val_roll  = 1500;
   if (val_thr < 1050) val_thr = 1000;
   if (val_thr > 1950) val_thr = 2000;
 

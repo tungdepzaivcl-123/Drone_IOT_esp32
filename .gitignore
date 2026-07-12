@@ -32,3 +32,4 @@ env/
 # ── Simulation outputs ────────────────────────────────────────
 *.png
 *.m~
+.aider*
