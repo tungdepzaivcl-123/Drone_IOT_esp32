@@ -113,12 +113,9 @@ const int motor_RL = 13;  // SAU TRÁI    (M4) CCW
 const int motorPins[] = {motor_FR, motor_FL, motor_RR, motor_RL};
 const unsigned long LOOP_TIME_US = 4000;   // 250Hz
 
-// MAC của Remote (taycamxin / drone_rc)
+// MAC cua Remote (taycamxin / drone_rc)
 uint8_t remoteMAC[] = {0xB0, 0xA6, 0x04, 0x58, 0x94, 0x48};
 
-// ═══════════════════════════════════════════════════
-// 3. PID & FILTER — V6.6 (FINAL STABLE)
-// ═══════════════════════════════════════════════════
 //
 // [CHẨN ĐOÁN DÙA TRÊN LỊCH SỪ THUC TE]
 // Từ auto-tune: Roll Ku=0.40, Pitch Ku=0.75
@@ -127,20 +124,13 @@ uint8_t remoteMAC[] = {0xB0, 0xA6, 0x04, 0x58, 0x94, 0x48};
 // Tuyệt đối KHÔNG dùng I-term Roll khi mới bay để dễ debug
 // ═══════════════════════════════════════════════════
 //                    Roll    Pitch   Yaw
-float kp_inner[3] = { 0.45f,  0.50f,  2.00f };
-float ki_inner[3] = { 0.04f,  0.04f,  0.20f };
+float kp_inner[3] = { 0.45f,  0.50f,  1.20f };  // [V8.0] Yaw 2.0->1.2 chong xoay
+float ki_inner[3] = { 0.04f,  0.04f,  0.05f };  // [V8.0] Yaw 0.20->0.05 chong windup
 float kd_inner[3] = { 0.012f, 0.015f, 0.00f };
 float kp_angle    = 2.20f;
-float alpha_gyro  = 0.60f;
-float alpha_motor = 0.35f;
-float alpha_d     = 0.18f;
-
-
-
-
-
-
-
+float alpha_gyro  = 0.92f;   // [V8.0] 0.60->0.92: trust raw gyro (DLPF 21Hz da filter)
+float alpha_motor = 0.65f;   // [V8.0] 0.35->0.65: motor response nhanh hon
+float alpha_d     = 0.30f;   // [V8.0] 0.18->0.30: D-term filter bot nang
 
 // PID state
 float error_inner[3]      = {0};
@@ -155,11 +145,11 @@ float angle_roll  = 0.0f;
 float angle_pitch = 0.0f;
 
 #define MAX_PID    400.0f
-#define MAX_I       250.0f   // [FIX] Tang len 250 de bu lech trong tam (drone nga sau)
+#define MAX_I       250.0f   // [V8.0] MAX_I tham chiếu — thực tế dùng max_i_axis[] riêng từng trục
 #define MAX_THR   1000.0f
 #define MIN_IDLE   150.0f    // Pulse 1150us
 #define THR_I_GATE 1350      // Khong cho I-term tich khi drone con le tren mat dat
-#define PID_PROFILE_VERSION 20260704UL
+#define PID_PROFILE_VERSION 20260801UL  // [V8.0]
 #define TAKEOFF_PID_MIN_LIMIT 120.0f
 #define TAKEOFF_PID_RAMP_START 1200
 #define TAKEOFF_PID_RAMP_END   1600
@@ -1333,8 +1323,9 @@ void calculatePID(float dt) {
   float target_rate[3];
   target_rate[0] = kp_angle * (target_roll  - angle_roll);
   target_rate[1] = kp_angle * (target_pitch - angle_pitch);
-  // Yaw deadzone 40us để tránh pid2 max khi stick trung tâm bị lệch nhẹ
-  target_rate[2] = (abs(cmd.lx - center_lx) > 40) ? (cmd.lx - center_lx) * 0.60f : 0.0f;
+  // [V8.0] Yaw deadzone 40us + giảm scale 0.60→0.30 (chống xoay tròn)
+  // La bàn HMC5883L đang lỗi → yaw chỉ dùng gyro Z → giảm gain để ổn định
+  target_rate[2] = (abs(cmd.lx - center_lx) > 40) ? (cmd.lx - center_lx) * 0.30f : 0.0f;
 
   // [V6.2 + V7.3 FIX] rawGyr:
   // Roll  (Y): Dao dau de khop voi angle_roll
@@ -1363,21 +1354,24 @@ void calculatePID(float dt) {
 
     // I-term: tích khi throttle đủ cao hoặc alt-hold
     bool ok_to_integrate = (cmd.throttle > THR_I_GATE) || alt_hold_on;
-    // [FIX] Gioi han I-term rieng cho tung truc (tranh Yaw windup tren mat dat gay xoay)
-    // Roll: 80, Pitch: 250 (de nang duoi nang), Yaw: 30
-    float max_i_axis[3] = {80.0f, 250.0f, 30.0f};
+    // [V8.0] Gioi han I-term rieng cho tung truc
+    // Yaw giảm 30→20 vì la bàn lỗi, tránh windup xoay tròn
+    // Roll: 80, Pitch: 250 (bù lệch trọng tâm), Yaw: 20
+    float max_i_axis[3] = {80.0f, 250.0f, 20.0f};
     
     if (ok_to_integrate) {
       integral_inner[i] = constrain(
         integral_inner[i] + error_inner[i] * dt,
         -max_i_axis[i], max_i_axis[i]
       );
-      // [FIX] Khong dung anti-windup decay kieu nhan he so! 
-      // Decay lam mat I-term khien drone khong the tu can bang neu bi lech trong tam.
-      // I-term da duoc constrain boi MAX_I o tren.
     } else {
-      // Dưới THR_I_GATE: xả I-term nhanh về 0 (tránh windup khi hover thấp)
-      integral_inner[i] *= 0.95f;
+      // Dưới THR_I_GATE: xả I-term về 0
+      // [V8.0] Yaw xả nhanh hơn (0.90) vì không có la bàn → drift tích lũy nhanh
+      if (i == 2) {
+        integral_inner[i] *= 0.90f;  // Yaw: xả nhanh chống xoay tròn
+      } else {
+        integral_inner[i] *= 0.95f;  // Roll/Pitch: giữ bình thường
+      }
     }
 
     // [V5.0 FIX #3] D on measurement thay D on error
@@ -1421,10 +1415,11 @@ void calculatePID(float dt) {
 // [Convention testmotoor.ino]:
 //   AngleX>0 → nâng FR+FL | AngleY>0 → nâng FL+RL
 //
-//   FR-M1(27): thr - pid[0] - pid[1] - pid[2]  (CCW)
-//   FL-M2(26): thr + pid[0] - pid[1] + pid[2]  (CW)
-//   RR-M3(14): thr - pid[0] + pid[1] + pid[2]  (CW)
-//   RL-M4(13): thr + pid[0] + pid[1] - pid[2]  (CCW)
+// [V8.0] PROPS OUT - ĐÃ XÁC NHẬN ĐÚNG CHIỀU ĐỘNG CƠ
+//   FR-M1(27): thr - pid[0] - pid[1] + pid[2]  (CW  - Props Out)
+//   FL-M2(26): thr + pid[0] - pid[1] - pid[2]  (CCW - Props Out)
+//   RR-M3(14): thr - pid[0] + pid[1] - pid[2]  (CCW - Props Out)
+//   RL-M4(13): thr + pid[0] + pid[1] + pid[2]  (CW  - Props Out)
 //
 // [V5.0 FIX #2] Reset smooth_m[] khi disarm
 // ═══════════════════════════════════════════════════
@@ -1642,6 +1637,11 @@ void setup() {
     Serial.println("[MPU] Calibrating... DAT DRONE PHANG TREN MAT PHANG!");
     delay(1000);
     mpu.calcOffsets();
+
+    // [V8.0 FIX] Complementary filter: 96% gyro + 4% accel
+    // Mac dinh 0.98 (chi 2% accel) -> gyro drift tich luy -> drone chui mui
+    // 0.96 = bu drift tot hon khi bay, van du nhanh cho PID
+    mpu.setFilterGyroCoef(0.96f);
 
     // SAU calcOffsets(): apply DLPF filter
     setupMPUFilter();
